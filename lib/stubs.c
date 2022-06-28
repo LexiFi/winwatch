@@ -58,7 +58,7 @@ void finalization(value v_block)
 
 static struct custom_operations global_state_ops =
 {
-    "global.state",             finalization,
+    "winwatch.state",           finalization,
     custom_compare_default,     custom_hash_default,
     custom_serialize_default,   custom_deserialize_default,
     custom_compare_ext_default, custom_fixed_length_default
@@ -109,12 +109,10 @@ value winwatch_create(value v_unit)
 value winwatch_add_path(value v_state, value v_path)
 {
     CAMLparam2(v_state, v_path);
-    int str_length;
     WCHAR *path = NULL;
     struct global_state *state = NULL;
     struct request *add_request = NULL;
 
-    str_length = strlen(String_val(v_path));
     path = caml_stat_strdup_to_utf16(String_val(v_path));
 
     state = *(struct global_state**)(Data_custom_val(v_state));
@@ -218,10 +216,11 @@ value winwatch_start(value v_state, value v_func)
 
                     DWORD path_len = wcslen(data->path);
 
-                    file_path = malloc(2 * (name_len + path_len + 2));
-                    memcpy(file_path, data->path, 2*(path_len+1));
+                    file_path = malloc(sizeof(WCHAR) * (name_len + path_len + 2));
+                    memcpy(file_path, data->path, sizeof(WCHAR) * path_len);
                     file_path[path_len] = L'/';
-                    file_path = wcscat(file_path, event->FileName);
+                    memcpy(file_path + path_len + 1, event->FileName, sizeof(WCHAR) * name_len);
+                    file_path[path_len + name_len + 1] = 0;
                     v_file_path = caml_copy_string_of_os(file_path);
                     free(file_path);
 
