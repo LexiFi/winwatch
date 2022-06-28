@@ -1,0 +1,4 @@
+(executable
+ (public_name winwatch)
+ (name main)
+ (libraries winwatch threads unix))
