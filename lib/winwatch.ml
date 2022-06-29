@@ -28,13 +28,17 @@ let create () =
   let t = { watch_state = aux_create (); exclusions = [] } in
   t
 
+let normalize path = 
+  String.concat "/" [Filename.dirname path; Filename.basename path]
+
 let set_exclusions t paths  =
-  t.exclusions <- paths
+  t.exclusions <- (List.map normalize paths)
 
 let start t handler =
   aux_start t.watch_state (fun action filename dir_path ->
-    if not (should_exclude ((dir_path ^ "/") ^ filename) t.exclusions) then
-      handler action ((dir_path ^ "/") ^ filename) 
+    let file_path = normalize ((dir_path ^ "/") ^ filename) in
+    if not (should_exclude file_path t.exclusions) then
+      handler action file_path
     )
 
 let add t path = 

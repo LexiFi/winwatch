@@ -19,7 +19,7 @@ let rec watch_input info handle =
 
 let file_watch paths =
   let info = Winwatch.create () in
-  Winwatch.set_exclusions info ["./.git"];
+  Winwatch.set_exclusions info ["../testdir1"; ".git"];
   List.iter (Winwatch.add info) paths;
   let handle = Thread.create (Winwatch.start info) handle_notif in
   print_endline "Type another path to watch or 'exit' to end directory watching";
