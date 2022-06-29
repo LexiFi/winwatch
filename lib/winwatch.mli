@@ -2,17 +2,14 @@ type action = ADD | REMOVE | MODIFY | RENAMED_OLD | RENAMED_NEW
 
 type state
 
-type t = 
-{ watch_state : state;
-  mutable exclusions : string list 
-}
+type t 
 
-val create : unit -> state 
+val create : unit -> t 
 
-val add : state -> string -> unit 
+val add : t -> string -> unit 
 
 val start : t -> (action -> string -> unit)  -> unit 
 
-val stop : state -> unit 
+val stop : t -> unit 
 
 val set_exclusions : t -> string list -> unit

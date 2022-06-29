@@ -123,17 +123,15 @@ value winwatch_create(value v_unit)
 value winwatch_add(value v_state, value v_path)
 {
     CAMLparam2(v_state, v_path);
-    WCHAR *path = NULL;
     struct global_state *state = NULL;
     struct request *add_request = NULL;
 
-    path = caml_stat_strdup_to_utf16(String_val(v_path));
 
     state = *(struct global_state**)(Data_custom_val(v_state));
     add_request = malloc(sizeof(struct request));
 
     add_request->type = AddPath;
-    add_request->path = path;
+    add_request->path = caml_stat_strdup_to_utf16(String_val(v_path));
 
     BOOL add_packet_posted = PostQueuedCompletionStatus(
         state->completion_port,
@@ -151,7 +149,7 @@ value winwatch_add(value v_state, value v_path)
 value winwatch_start(value v_state, value v_func)
 {
     CAMLparam2(v_state, v_func);
-    CAMLlocal2(v_file_path, v_action);
+    CAMLlocal2(v_file_name, v_action);
 
     struct global_state* state = NULL;
     DWORD num_bytes = 0;
@@ -194,7 +192,7 @@ value winwatch_start(value v_state, value v_func)
                 struct path_node *data = NULL;
                 FILE_NOTIFY_INFORMATION *event = NULL;
                 DWORD name_len;
-                wchar_t *file_path;
+                //wchar_t *file_path;
 
                 data = notif->file_change;
                 event = (FILE_NOTIFY_INFORMATION*)data->buffer;
@@ -222,7 +220,8 @@ value winwatch_start(value v_state, value v_func)
                             v_action = Val_int(4);
                             break;
                     }
-
+                    
+                    /*
                     DWORD path_len = wcslen(data->path);
 
                     file_path = malloc(sizeof(WCHAR) * (name_len + path_len + 2));
@@ -232,8 +231,15 @@ value winwatch_start(value v_state, value v_func)
                     file_path[path_len + name_len + 1] = 0;
                     v_file_path = caml_copy_string_of_os(file_path);
                     free(file_path);
+                    */
+                    
+                    WCHAR* file_name = malloc(sizeof(WCHAR) * (name_len + 1));
+                    memcpy(file_name, event->FileName, sizeof(WCHAR) * name_len);
+                    file_name[name_len] = 0;
+                    value v_file_name = caml_copy_string_of_os(file_name);
+                    value v_dir_path = caml_copy_string_of_os(data->path);
 
-                    caml_callback2(v_func, v_action, v_file_path);
+                    caml_callback3(v_func, v_action, v_file_name, v_dir_path);
 
                     if (event->NextEntryOffset)
                     {
@@ -319,8 +325,8 @@ value winwatch_start(value v_state, value v_func)
 
        CloseHandle(tmp->handle);
        free(tmp->buffer);
-       free(tmp);
        caml_stat_free(tmp->path);
+       free(tmp);
        state->head = (state->head)->next;
     }
     tmp = state->head;
@@ -347,7 +353,6 @@ value winwatch_stop(value v_state)
         0,
         (ULONG_PTR)stopReq,
         overlapped);
-
     if (stop_packet_posted == FALSE)
     {
         winwatch_error(state->completion_port, "PostQueuedCompletionStatus failed");

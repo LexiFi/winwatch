@@ -7,16 +7,13 @@ type t =
   mutable exclusions : string list 
 }
 
-external create: unit -> state = "winwatch_create"
+external aux_create: unit -> state = "winwatch_create"
 
-external add: state -> string -> unit = "winwatch_add"
+external aux_add: state -> string -> unit = "winwatch_add"
 
-external start_watch: state -> (action -> string -> unit) -> unit = "winwatch_start"
+external aux_start: state -> (action -> string -> string -> unit) -> unit = "winwatch_start"
 
-external stop: state -> unit = "winwatch_stop"
-
-let set_exclusions x paths  =
-  x.exclusions <- paths
+external aux_stop: state -> unit = "winwatch_stop"
 
 let rec should_exclude filename paths =
   (* Use List.exists (fun exc -> String.starts_with ... ) paths *)
@@ -27,8 +24,21 @@ let rec should_exclude filename paths =
     | true -> true
     | false -> should_exclude filename t
 
+let create () = 
+  let t = { watch_state = aux_create (); exclusions = [] } in
+  t
+
+let set_exclusions t paths  =
+  t.exclusions <- paths
+
 let start t handler =
-  start_watch t.watch_state (fun action filename ->
-    if not (should_exclude filename t.exclusions) then
-      handler action filename
+  aux_start t.watch_state (fun action filename dir_path ->
+    if not (should_exclude ((dir_path ^ "/") ^ filename) t.exclusions) then
+      handler action ((dir_path ^ "/") ^ filename) 
     )
+
+let add t path = 
+  aux_add t.watch_state path
+
+let stop t =
+  aux_stop t.watch_state
