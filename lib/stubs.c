@@ -9,7 +9,6 @@
 #include <caml/unixsupport.h>
 #include <caml/custom.h>
 #include <windows.h>
-#include <wchar.h>
 
 #define BUFF_SIZE 1024
 
@@ -23,7 +22,7 @@ struct global_state
 struct path_node
 {
     char *buffer;
-    const WCHAR *path;
+    WCHAR *path;
     HANDLE handle;
     OVERLAPPED overlapped;
     struct path_node *next;
@@ -42,11 +41,11 @@ struct request
     union
     {
         struct path_node* file_change;
-        const WCHAR* path;
+        WCHAR* path;
     };
 };
 
-void finalization(value v_block)
+static void finalization(value v_block)
 {
     struct global_state *state = *(struct global_state**) Data_custom_val(v_block);
 
@@ -64,7 +63,7 @@ static struct custom_operations global_state_ops =
     custom_compare_ext_default, custom_fixed_length_default
 };
 
-static LPTSTR print_error(HANDLE handle)
+static void winwatch_error(HANDLE handle, char* err_msg)
 {
     LPTSTR lpMsgBuf;
     DWORD dw;
@@ -82,7 +81,22 @@ static LPTSTR print_error(HANDLE handle)
 
     CloseHandle(handle);
 
-    return lpMsgBuf;
+    uerror(err_msg, caml_copy_string(lpMsgBuf));
+}
+
+static void winwatch_watch(HANDLE handle, char* buffer, LPOVERLAPPED lpoverlapped)
+{
+    BOOL watch_path = ReadDirectoryChangesW(
+        handle, buffer, BUFF_SIZE, TRUE,
+        FILE_NOTIFY_CHANGE_FILE_NAME  |
+        FILE_NOTIFY_CHANGE_DIR_NAME   |
+        FILE_NOTIFY_CHANGE_LAST_WRITE,
+        NULL, lpoverlapped, NULL);
+
+    if (watch_path == FALSE)
+    {
+        winwatch_error(handle, "ReadDirectoryChangesW failed");
+    }
 }
 
 value winwatch_create(value v_unit)
@@ -106,7 +120,7 @@ value winwatch_create(value v_unit)
     CAMLreturn(v_state);
 }
 
-value winwatch_add_path(value v_state, value v_path)
+value winwatch_add(value v_state, value v_path)
 {
     CAMLparam2(v_state, v_path);
     WCHAR *path = NULL;
@@ -120,7 +134,6 @@ value winwatch_add_path(value v_state, value v_path)
 
     add_request->type = AddPath;
     add_request->path = path;
-
 
     BOOL add_packet_posted = PostQueuedCompletionStatus(
         state->completion_port,
@@ -146,7 +159,6 @@ value winwatch_start(value v_state, value v_func)
     char* path;
     BOOL stop = FALSE;
     struct request* notif;
-    ULONG_PTR completion_key;
     struct path_node* tmp = NULL;
 
     state = *(struct global_state**)(Data_custom_val(v_state));
@@ -158,18 +170,15 @@ value winwatch_start(value v_state, value v_func)
         BOOL got_packet = GetQueuedCompletionStatus(
             state->completion_port,
             &num_bytes,
-            &completion_key,
+            (PULONG_PTR)(&notif),
             &overlapped,
             INFINITE);
 
         caml_acquire_runtime_system();
 
-        notif = (struct request*)completion_key;
-
         if (got_packet == FALSE)
         {
-            LPTSTR error_msg = print_error(state->completion_port);
-            uerror("GetQCompletionStatus failed", caml_copy_string(error_msg));
+            winwatch_error(state->completion_port, "GetQueuedCompletionStatus failed");
         }
 
         switch (notif->type)
@@ -238,18 +247,8 @@ value winwatch_start(value v_state, value v_func)
 
                 memset(&(notif->file_change->overlapped), 0, sizeof(OVERLAPPED));
 
-                BOOL watch_path = ReadDirectoryChangesW(
-                    notif->file_change->handle, notif->file_change->buffer, BUFF_SIZE, TRUE,
-                    FILE_NOTIFY_CHANGE_FILE_NAME  |
-                    FILE_NOTIFY_CHANGE_DIR_NAME   |
-                    FILE_NOTIFY_CHANGE_LAST_WRITE,
-                    NULL, &(notif->file_change->overlapped), NULL);
+                winwatch_watch(notif->file_change->handle, notif->file_change->buffer, &(notif->file_change->overlapped));
 
-                if (watch_path == FALSE)
-                {
-                    LPTSTR error_msg = print_error(notif->file_change->handle);
-                    uerror("ReadDirectoryChangesW failed", caml_copy_string(error_msg));
-                }
             } break;
 
             case AddPath:
@@ -293,18 +292,7 @@ value winwatch_start(value v_state, value v_func)
                     caml_failwith("File could not be added to completion port.");
                 }
 
-                BOOL watch_path = ReadDirectoryChangesW(
-                    new_node->handle, new_node->buffer, BUFF_SIZE, TRUE,
-                    FILE_NOTIFY_CHANGE_FILE_NAME  |
-                    FILE_NOTIFY_CHANGE_DIR_NAME   |
-                    FILE_NOTIFY_CHANGE_LAST_WRITE,
-                    NULL, &(new_node->overlapped), NULL);
-
-                if (watch_path == FALSE)
-                {
-                    LPTSTR error_msg = print_error(new_node->handle);
-                    uerror("ReadDirectoryChangesW failed", caml_copy_string(error_msg));
-                }
+                winwatch_watch(new_node->handle, new_node->buffer, &(new_node->overlapped));
 
                 wprintf(L"Watching %ls\n", new_node->path);
                 fflush(stdout);
@@ -332,6 +320,7 @@ value winwatch_start(value v_state, value v_func)
        CloseHandle(tmp->handle);
        free(tmp->buffer);
        free(tmp);
+       caml_stat_free(tmp->path);
        state->head = (state->head)->next;
     }
     tmp = state->head;
@@ -342,7 +331,7 @@ value winwatch_start(value v_state, value v_func)
     CAMLreturn(Val_unit);
 }
 
-value winwatch_stop_watching(value v_state)
+value winwatch_stop(value v_state)
 {
     CAMLparam1(v_state);
     struct global_state* state = NULL;
@@ -361,8 +350,7 @@ value winwatch_stop_watching(value v_state)
 
     if (stop_packet_posted == FALSE)
     {
-        LPTSTR error_msg = print_error(state->completion_port);
-        uerror("PostQueuedCompletionStatus", caml_copy_string(error_msg));
+        winwatch_error(state->completion_port, "PostQueuedCompletionStatus failed");
     }
 
     CAMLreturn(Val_unit);

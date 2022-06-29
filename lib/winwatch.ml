@@ -1,18 +1,22 @@
 type action = ADD | REMOVE | MODIFY | RENAMED_OLD | RENAMED_NEW
-type t
 
-external create: unit -> t = "winwatch_create"
+type state
 
-external add_path: t -> string -> unit = "winwatch_add_path"
+type t = 
+{ watch_state : state;
+  mutable exclusions : string list 
+}
 
-external start_watch: t -> (action -> string -> unit) -> unit = "winwatch_start"
+external create: unit -> state = "winwatch_create"
 
-external stop_watching: t -> unit = "winwatch_stop_watching"
+external add: state -> string -> unit = "winwatch_add"
 
-let exclusions = ref []
+external start_watch: state -> (action -> string -> unit) -> unit = "winwatch_start"
 
-let set_exclusions paths =
-  exclusions := paths
+external stop: state -> unit = "winwatch_stop"
+
+let set_exclusions x paths  =
+  x.exclusions <- paths
 
 let rec should_exclude filename paths =
   (* Use List.exists (fun exc -> String.starts_with ... ) paths *)
@@ -23,8 +27,8 @@ let rec should_exclude filename paths =
     | true -> true
     | false -> should_exclude filename t
 
-let start state handler =
-  start_watch state (fun action filename ->
-      if not (should_exclude filename !exclusions) then
-        handler action filename
+let start t handler =
+  start_watch t.watch_state (fun action filename ->
+    if not (should_exclude filename t.exclusions) then
+      handler action filename
     )

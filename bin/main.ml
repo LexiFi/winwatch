@@ -1,31 +1,32 @@
 let handle_notif action filename =
   match action with
-  | Winwatch.ADD -> Printf.printf "Added: %s\n%!" filename
-  | Winwatch.REMOVE -> Printf.printf "Removed: %s\n%!" filename
-  | Winwatch.MODIFY -> Printf.printf "Modified: %s\n%!" filename
-  | Winwatch.RENAMED_OLD -> Printf.printf "Renamed from: %s\n%!" filename
-  | Winwatch.RENAMED_NEW -> Printf.printf "          to: %s\n%!" filename
+  | Winwatch.ADD -> Printf.printf "Added: %s%!" filename
+  | Winwatch.REMOVE -> Printf.printf "Removed: %s%!" filename
+  | Winwatch.MODIFY -> Printf.printf "Modified: %s%!" filename
+  | Winwatch.RENAMED_OLD -> Printf.printf "Renamed from: %s%!" filename
+  | Winwatch.RENAMED_NEW -> Printf.printf "          to: %s%!" filename
 
 let rec watch_input state handle =
   match input_line stdin with
   | exception End_of_file
   | "exit" ->
-    Winwatch.stop_watching state;
+    Winwatch.stop state;
     Thread.join handle;
-    Printf.printf "File-watching has ended\n%!"
+    print_endline "File-watching has ended"
   | _ as path ->
-    Winwatch.add_path state path;
+    Winwatch.add state path;
     watch_input state handle
 
 let file_watch paths =
   let state = Winwatch.create () in
-  List.iter (Winwatch.add_path state) paths;
-  let handle = Thread.create (Winwatch.start state) handle_notif in
+  let info = Winwatch.{ watch_state = state; exclusions = [] } in
+  Winwatch.set_exclusions info ["./.git"];
+  List.iter (Winwatch.add state) paths;
+  let handle = Thread.create (Winwatch.start info) handle_notif in
   print_endline "Type another path to watch or 'exit' to end directory watching";
   watch_input state handle
 
 let () =
-  (* Winwatch.set_exclusions ["./.git"]; *)
   match Array.to_list Sys.argv with
   | [] -> ()
   | _ :: t ->
